@@ -23,6 +23,7 @@ I do not believe in current "auto class makers" that tries to reconstruct the wh
 * The code doesn't dive into the functions inside the constructor.
 * I know and I'll update it at some point, if you encounter a constructor that substract an offset from a reference to get to its vtable (`vt0 = refVtable - 2`), it won't work, I don't handle sub asg. Should be very rare though.
 * Some member assignations and assignations only made in parameters of functions within the constructor won't be recognized. If there is too much of them, you can use "create new struct type" prior to my script, call the structure the same way my script would call the class, and then apply the plugin. It will keep the existing structure and just edit it.
+* Do not work on class constructed into the stack, the variable must be a pointer.
 
 ## How to use
 
