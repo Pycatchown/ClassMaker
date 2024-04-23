@@ -209,10 +209,7 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
             print("THE OPERAND I HAVE NO CLUE WHAT'S ITS PURPOSE AND NEITHER DO THE DOC : Z FOUND!!!! %x: op %s" % (cexpr.z.ea, cexpr.z.opname))
 
 
-#ea = 0x02BDF4D8 #MFD
-ea = 0x041C0D3 # Furu
 
-#ea = 0x02BAC394
 def make_class(ea, idx_choosed):
     if ida_hexrays.init_hexrays_plugin():
         idx_choosed = idx_choosed
