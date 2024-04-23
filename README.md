@@ -35,6 +35,7 @@ Before the use of the plugin, note where the cursor his, make sure to make it po
 And then you press '4' (or change it within the script for whatever you want) and the class is made.
 
 ![After use](img/after.png)
+![An example](img/example.png)
 
 
 ## TODO
