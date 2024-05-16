@@ -93,6 +93,10 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
         self.ida_struct_id = idaapi.get_struc_id(self.name_class)
         if self.ida_struct_id == idaapi.BADADDR:
             self.ida_struct_id = idc.add_struc(0, self.name_class, 0)
+            if self.ida_struct_id == idaapi.BADADDR:
+                self.name_class += "_"
+                self.ida_struct_id = idc.add_struc(0, self.name_class, 0)
+        print(hex(self.ida_struct_id))
         for k, v in self.struct.items():
             idc.add_struc_member(self.ida_struct_id, v["name"], k, get_idasize_from_size(v["size"]), -1, v["size"])
             if (vftable := v.get("vftable")) is not None:
@@ -174,7 +178,7 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
                     elif cast.x.op == ida_hexrays.cot_cast:
                         if cast.x.x.v == None or cast.x.x.v.idx != self.idx:
                             return
-                        self.add_struct_member(cexpr, cast.y.numval() * SIZEOF_PTR, cexpr.x.refwidth)
+                        self.add_struct_member(cexpr, cast.y.numval() * cexpr.x.refwidth, cexpr.x.refwidth)
         except:
             print(f"error at {cexpr.ea:x}, {cexpr.x.opname}")
 
