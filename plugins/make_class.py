@@ -126,7 +126,6 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
         return methods
 
     def add_struct_member(self, cexpr, offset, refwidth):
-        print(cexpr.y.opname)
         if (cexpr.y and (cexpr.y.op == ida_hexrays.cot_ref or cexpr.y.op == ida_hexrays.cot_obj))  or (cexpr.y and cexpr.y.op == ida_hexrays.cot_add and (cexpr.y.x.op == ida_hexrays.cot_ref  or cexpr.y.x.op == ida_hexrays.cot_obj)):
             to_add = 0
             ref = cexpr.y
@@ -136,8 +135,6 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
             if ref.op == ida_hexrays.cot_ref:
                 vtable_addr = ref.x.obj_ea + to_add
             elif ref.op == ida_hexrays.cot_obj:
-                print('b')
-                print(hex(ref.obj_ea))
                 vtable_addr = ref.obj_ea + to_add
             
             methods = self.get_methods_from_vtable(vtable_addr + to_add) # TODO: being careful in case of other refs in class that arn't vtables
