@@ -1,4 +1,5 @@
 import idaapi
+import ida_ida
 import ida_funcs
 import idc
 import ida_kernwin
@@ -8,7 +9,7 @@ import ida_typeinf
 import re
 import uuid
 
-IS_64 = idaapi.get_inf_structure().is_64bit()
+IS_64 = False if ida_ida.inf_is_32bit_exactly() else True #8.4 reliquat
 SIZEOF_PTR = 8 if IS_64 else 4
 
 def read_ptr(ea):
@@ -25,6 +26,8 @@ def get_type(size):
         return "dword"
     elif size == 8:
         return "qword"
+    else:
+        return get_type(SIZEOF_PTR)
 
 def get_idasize_from_size(size):
     if size == 1:
@@ -62,13 +65,17 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
         return 0
     
     def make_vftable(self, vftable):
-        vftable_struct_id = idaapi.get_struc_id(vftable["name"])
+        vftable_struct_id = idc.get_struc_id(vftable["name"])
         if vftable_struct_id == idaapi.BADADDR:
             vftable_struct_id = idc.add_struc(0, vftable["name"], 0)
         if vftable_struct_id == idaapi.BADADDR:
             print(vftable)
         for i in range(len(vftable["methods"])):
-            idc.add_struc_member(vftable_struct_id, vftable["methods"][i]["name_func"], i * SIZEOF_PTR, get_idasize_from_size(SIZEOF_PTR), -1, SIZEOF_PTR)
+            suffix = ""
+            duplicate = 1
+            while idc.add_struc_member(vftable_struct_id, vftable["methods"][i]["name_func"] + suffix, i * SIZEOF_PTR, get_idasize_from_size(SIZEOF_PTR), -1, SIZEOF_PTR) != 0:
+                suffix = f"_{duplicate}"
+                duplicate += 1
             proto = idc.get_type(vftable['methods'][i]['ea_func'])
             if proto == None: #no typing decl
                 proto = f"void __thiscall(*{vftable['methods'][i]['name_func']})({self.name_class} *this)"
@@ -90,13 +97,9 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
         if self.name_class == None:
             print("Couldn't determine class name")
             return
-        self.ida_struct_id = idaapi.get_struc_id(self.name_class)
+        self.ida_struct_id = idc.get_struc_id(self.name_class)
         if self.ida_struct_id == idaapi.BADADDR:
             self.ida_struct_id = idc.add_struc(0, self.name_class, 0)
-            if self.ida_struct_id == idaapi.BADADDR:
-                self.name_class += "_"
-                self.ida_struct_id = idc.add_struc(0, self.name_class, 0)
-        print(hex(self.ida_struct_id))
         for k, v in self.struct.items():
             idc.add_struc_member(self.ida_struct_id, v["name"], k, get_idasize_from_size(v["size"]), -1, v["size"])
             if (vftable := v.get("vftable")) is not None:
@@ -109,30 +112,42 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
         methods = []
         while ((addr := read_ptr(ea)) != idaapi.BADADDR):
             f = ida_funcs.get_func(addr)
-            if f == None or addr != f.start_ea:
+            try:
+                if f == None:
+                    break
+            except:
+                pass #stupid fix to prevent none comparison from crashing the script
+            if addr != f.start_ea:
                 break
-            name_func = idaapi.get_ea_name(addr, idaapi.GN_SHORT|idaapi.GN_DEMANGLED).split("(")[0].replace("::", "__").replace("<", "_").replace(">", "_")
+            name_func = idaapi.get_ea_name(addr, idaapi.GN_SHORT|idaapi.GN_DEMANGLED).split("(")[0].replace("::", "__").replace("<", "_").replace(">", "_").replace(" ", "_")
             name_func = re.sub(r"[^a-zA-Z0-9\_]+",'', name_func)
             methods += [{"ea_func":addr, "name_func": name_func}]
             ea += SIZEOF_PTR
         return methods
 
     def add_struct_member(self, cexpr, offset, refwidth):
-        if (cexpr.y and cexpr.y.op == ida_hexrays.cot_ref) or (cexpr.y and cexpr.y.op == ida_hexrays.cot_add and cexpr.y.x.op == ida_hexrays.cot_ref):
+        print(cexpr.y.opname)
+        if (cexpr.y and (cexpr.y.op == ida_hexrays.cot_ref or cexpr.y.op == ida_hexrays.cot_obj))  or (cexpr.y and cexpr.y.op == ida_hexrays.cot_add and (cexpr.y.x.op == ida_hexrays.cot_ref  or cexpr.y.x.op == ida_hexrays.cot_obj)):
             to_add = 0
+            ref = cexpr.y
             if cexpr.y.op == ida_hexrays.cot_add:
                 ref = cexpr.y.x
                 to_add = cexpr.y.y.numval() *  SIZEOF_PTR
-            else:
-                ref = cexpr.y
-            methods = self.get_methods_from_vtable(ref.x.obj_ea + to_add) # TODO: being careful in case of other refs in class that arn't vtables
+            if ref.op == ida_hexrays.cot_ref:
+                vtable_addr = ref.x.obj_ea + to_add
+            elif ref.op == ida_hexrays.cot_obj:
+                print('b')
+                print(hex(ref.obj_ea))
+                vtable_addr = ref.obj_ea + to_add
+            
+            methods = self.get_methods_from_vtable(vtable_addr + to_add) # TODO: being careful in case of other refs in class that arn't vtables
             name_vtable = "v" + str(uuid.uuid4()).split('-')[0]
-            while idaapi.get_struc_id(name_vtable) != idaapi.BADADDR:
+            while idc.get_struc_id(name_vtable) != idaapi.BADADDR:
                 name_vtable = "v" + str(uuid.uuid4()).split('-')[0]
-            self.struct[offset] = {"name": f"vt{offset}", "size": refwidth, "vftable": {"ea": cexpr.y.x.obj_ea + to_add, "name": f"{name_vtable}", "methods": methods}}
+            self.struct[offset] = {"name": f"vt{offset}", "size": refwidth, "vftable": {"ea": vtable_addr + to_add, "name": f"{name_vtable}", "methods": methods}}
             if offset == 0:
-                self.name_class = idaapi.get_ea_name(ref.x.obj_ea, idaapi.GN_SHORT|idaapi.GN_DEMANGLED)
-                self.name_class = re.sub(r"\`.*'",'',  self.name_class).split(" ")[-1:][0]
+                self.name_class = idaapi.get_ea_name(vtable_addr, idaapi.GN_SHORT|idaapi.GN_DEMANGLED)
+                self.name_class = "_".join(re.sub(r"\`.*'",'',  self.name_class).split(" ")[1:]).replace("::", "__").replace("<", "_").replace(">", "_").replace(" ", "_").replace("*", "P")
                 if self.name_class.endswith("::"):
                     self.name_class = self.name_class[:-2]
 
@@ -176,11 +191,11 @@ class ClassConstructor(ida_hexrays.ctree_visitor_t):
                                 return
                             self.add_struct_member(cexpr, cast.x.y.numval(), cexpr.x.refwidth)
                     elif cast.x.op == ida_hexrays.cot_cast:
-                        if cast.x.x.v == None or cast.x.x.v.idx != self.idx:
+                        if cast.x.x.v and cast.x.x.v.idx != self.idx:
                             return
                         self.add_struct_member(cexpr, cast.y.numval() * cexpr.x.refwidth, cexpr.x.refwidth)
-        except:
-            print(f"error at {cexpr.ea:x}, {cexpr.x.opname}")
+        except Exception as e:
+            print(f"error ({e}) at {cexpr.ea:x}, {cexpr.x.opname}")
 
     def dump_cexpr(self, ea, cexpr):
         # iterate over all block instructions
@@ -277,9 +292,6 @@ class MakeClassHandler(idaapi.action_handler_t):
         finder = CexprFinder(ctx.cur_ea)
         finder.apply_to(cfunc.body, None)
         cexpr = finder.result
-        if cexpr == None:
-            print(f"Cursor is not placed at a vtable, couldn't find cexpr at {ctx.cur_ea:x}")
-            return 1
 
         idx = -1
         if cexpr.x and cexpr.x.op == ida_hexrays.cot_memptr:
